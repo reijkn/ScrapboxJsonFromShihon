@@ -1,0 +1,336 @@
+---
+title: "Untitled"
+author: "ierayo"
+date: "2019/5/5"
+output: html_document
+---
+
+# まえがきアンド準備
+
+私本管理で吐き出したCSVをjsonに変換する．
+このjsonはscrapboxで読むためのフォーマットになっている．
+
+準備は，，このくらいか＞＞
+```{r message=F, error=F, warning=F}
+library(tidyverse)
+library(readr)
+library(jsonlite)
+library(lubridate)
+```
+
+あと，リンクを作るための括弧づくり関数．
+```{r}
+kakorize <- function(x){
+  str_c("[", x, "]")
+}
+```
+
+
+# CSVの読み込み
+
+私本管理で吐き出したCSVを読み込む．
+このとき，たぶん，`UTF-8`にしとくのがいいかも．
+型，ISBNはデフォルトでは文字列型になることが多い．
+きちんと型を指定するほうが親切である．
+なおCSVは，私本管理のdataフォルダから手動で持ってくる感じになる．
+CSVのファイル名は読み取った日の日付にする．
+また，`lubridate`の`today()`のアレに合わせる．
+これは次のようになる．
+
+```{r}
+today()
+```
+
+ということで，ファイル名はこんなのが理想だ．
+```{r}
+input <- str_c(today(), ".csv")
+target.df <- read_csv(input, col_types = cols(ISBN = col_character()))
+```
+
+```{r}
+target.df
+```
+
+## 下の関数の実行部分、これだけやればおｋ
+処理をひとまとめにしたのでもう、呼び出すだけ。単にね。
+```{r}
+shihonToScrapbox()
+```
+
+
+
+## 関数にして一気にやってしまいたい。
+
+```{r}
+shihonToScrapbox <- function(){
+  # 入出力
+  inputName <- str_c(today(), ".csv")
+  outputName <- str_c(today(), ".json")
+  books.df <- read_csv(inputName, col_types = cols(ISBN = col_character()))
+  
+  # 必要な列をしぼる
+  books_sub.df <- books.df %>%
+    mutate(Update = str_c(`備考4:年`,`備考4:月`,`備考4:日`)) %>%
+    select(title = "タイトル", 
+           ISBN = "ISBN", 
+           author = "作者1", 
+           author2 = "その他の作者",
+           publisher = "発行所",
+           picURL = "画像",
+           "Update") #この順番になる？ なります．
+  # リンクのためのカッコをつける
+  books_sub.df <- books_sub.df %>%
+    mutate(author = kakorize(author), 
+           author2 = kakorize(author2), 
+           publisher = kakorize(publisher),
+           picURL = kakorize(picURL)) %>%
+    mutate(author = if_else(is.na(author), "0", author), # 文字列なので"0"とする．
+           author2 = if_else(is.na(author2), "0", author2),
+           publisher = if_else(is.na(publisher), "0", publisher))
+
+  # なんか json のために list にしたい
+  books_sub.df_lines <- books_sub.df %>%
+    mutate(lines = str_c(ISBN, author, author2, publisher, Update, sep = ", ")) %>%
+    mutate(lines = pmap(list(title, picURL, lines), list)) %>%
+    select(-ISBN, -author, -author2, -publisher, -Update, -picURL)
+
+  # df -> list -> json -> 書き出し
+  books_sub.list <- list("pages" = books_sub.df_lines)
+  books_sub.json <- toJSON(books_sub.list, auto_unbox = T)
+  write_file(books_sub.json, outputName)
+  
+}
+```
+
+
+# こっちにうつせばいいのでは、force directed
+
+とりあえず確認してみましょう．
+gihyoのは電子用のisbnのためか，発行所がnot availableになる．
+```{r eval=F}
+books_tags.df <- books.df %>% 
+  mutate(Update = str_c(`備考4:年`,`備考4:月`,`備考4:日`)) %>%
+  mutate(source = row_number() -1,
+         target = row_number() -1) %>% 
+  select(
+    source, target,
+    title = "タイトル",
+    ISBN = "ISBN",
+    author1 = "作者1",
+    author2 = "作者2",
+    author_other = "その他の作者",
+    publisher = "発行所",
+    rabel = "レーベル",
+    "Update")
+```
+
+サボった買いがあるあれ
+```{r}
+books_tags.df <- books_tags.df %>% 
+  mutate(tag1 = author1, tag2 = rabel) %>% 
+  pivot_longer(cols = starts_with("tag"), values_to = "tags") %>% 
+  drop_na(tags) %>% 
+  group_by(tags) %>% 
+  expand(source, target) %>% 
+  filter(source < target) %>% 
+  select(source, target, tags) %>% 
+  ungroup()
+```
+
+```{r}
+nodes <- toJSON(books.df %>% select(ISBN))
+edges <- toJSON(books_tags.df)
+```
+
+
+```{r}
+dataset <- list("nodes" = books_sub.df_graph,
+                "edges" = books_tags.df %>% select(-tags)) %>% toJSON(pretty = TRUE)
+#write_json(dataset, "dataset5.json")
+write_file(dataset, "dataset6.json")
+```
+
+ノード作成係は，もうきちんとしておいた方がいいでしょう，
+```{r}
+books_sub.df_graph <- books_sub.df %>% 
+  mutate(thumnail = str_c("thumnail/t_", ISBN, ".png"),
+         cover = str_c("original/", ISBN, ".jpg")) %>% 
+  select(-author2) %>% 
+  mutate(id = row_number() - 1)
+```
+
+```{r}
+books_sub.df_graph
+```
+
+3d要は`links`じゃないか！！！！！！！！！！！
+```{r}
+books_sub.df_graph2 <- books_sub.df %>% 
+  mutate(thumnail = str_c("t_", ISBN, ".png"),
+         cover = str_c(ISBN, ".jpg")) %>% 
+  select(-author2) %>% 
+  mutate(id = row_number() - 1)
+```
+
+```{r}
+dataset <- list("nodes" = books_sub.df_graph2,
+                "links" = books_tags.df %>% select(-tags)) %>% toJSON(pretty = TRUE)
+#write_json(dataset, "dataset5.json")
+write_file(dataset, "dataset7.json")
+```
+
+
+
+```{r}
+list("nodes" = books.df %>% transmute(idd = row_number())) %>% toJSON() %>% write_json("dataset4.json")
+```
+
+
+# 不要論
+
+## 以下、関数にするまえのそぼくん、、
+
+### scrapbpxに表示したいやつだけのための整形
+
+欲しい列は，`ISBN`，`タイトル`，くらいにしておく．
+作者と書っパン者も追加する．
+```{r}
+books_sub.df <- books.df %>%
+  mutate(Update = str_c(`備考4:年`,`備考4:月`,`備考4:日`)) %>%
+  select(title = "タイトル", 
+         ISBN = "ISBN", 
+         author = "作者1", 
+         author2 = "その他の作者",
+         publisher = "発行所",
+         picURL = "画像",
+         "Update") #この順番になる？ なります．
+#books_sub.df
+```
+
+この時点で`kakorize()`する．
+これ`null`のときはどうなるのかしら．．
+`str_c()`でくっつける前に，`NA`は`NULL`にしておく．
+そうしないと`NA`が入っていると`NA`を返すので．
+で、Amazon画像のないやつはなんか、NoImageみたいな処理も欲しいよね、普通は。
+```{r}
+books_sub.df <- books_sub.df %>%
+  mutate(author = kakorize(author), 
+         author2 = kakorize(author2), 
+         publisher = kakorize(publisher),
+         picURL = kakorize(picURL)) %>%
+  mutate(author = if_else(is.na(author), "0", author), # 文字列なので"0"とする．
+         author2 = if_else(is.na(author2), "0", author2),
+         publisher = if_else(is.na(publisher), "0", publisher))
+```
+
+
+### 気味の悪い拡張子で吐き出そう
+
+うえのではだめです
+```{r}
+books_sub.df_lines <- books_sub.df %>%
+  mutate(lines = str_c(ISBN, author, author2, publisher, Update, sep = ", ")) %>%
+  mutate(lines = pmap(list(title, picURL, lines), list)) %>%
+  select(-ISBN, -author, -author2, -publisher, -Update, -picURL)
+```
+
+
+うーん
+```{r}
+books_sub.list <- list("pages" = books_sub.df_lines)
+books_sub.json <- toJSON(books_sub.list, auto_unbox = T)
+#books_sub.json
+write_file(books_sub.json, outputName)
+```
+
+
+## 頁を上書きするとき，そのままでいいのかどうか．
+```{r}
+books_sub.df$lines[[1]]
+```
+
+```{r}
+books_sub.list2 <- list("pages" = books_sub.df2)
+books_sub.json2 <- toJSON(books_sub.list2, auto_unbox = T)
+#books_sub.json
+write_file(books_sub.json2, "books_0721_2.json")
+```
+
+いけるみたいですね
+![](tuikipng.png)
+
+```{r}
+books_sub.df
+```
+
+
+
+備考4で，合体させたいね
+```{r include=F}
+str_c(2019,"07",21)
+```
+
+
+なぜ，`select`したら変になる？？
+どうにも，読み込んだ時すでにおかしい
+```{r}
+options(digits = 14)
+options(scipen = 0)
+str_length(books.df$ISBN[50])
+```
+
+```{r eval=F}
+nlist <- list("hoge", NA)
+nlist
+str_c("hoge", "huf", "u", sep = ", ")
+```
+
+scrapbox用のフォーマットに変換していきたいですね．
+`lines`列を作る．`map2()`と`mutate()`を使うのだろうか．
+```{r eval=F}
+books_sub.df <- books_sub.df %>%
+  mutate(lines = map2(title, # 1行目
+                      str_c(ISBN, 
+                            kakorize(author), 
+                            kakorize(author2),
+                            kakorize(publisher), sep = ", "), # 2行目
+                      list)) %>%
+  select(-ISBN, -author, -author2, -publisher)
+books_sub.df[6,2][[1]]
+```
+
+## OneDrive画像へのリンク
+
+```{r}
+OneDriveURL <- "https://ganbareatasi-my.sharepoint.com/personal/ierayo_ganbareatasi_onmicrosoft_com/Documents/pict/books/"
+```
+
+と思ったんだけど、amazon画像へのリンクがある。
+これを貼れば、まあいいんじゃないか。
+
+## gyazo不要論
+
+isbnとgyazoのURLを紐付けて
+```{r message=F}
+books_sub.df <- books_sub.df %>% 
+  left_join(gyazo_url) %>% 
+  filter(!str_detect(title, "プログラミングコンテスト")) %>% 
+  filter(!str_detect(title, "アプレンティス"))
+```
+
+```{r}
+books_sub.df <- books_sub.df %>% 
+  mutate(URL = if_else(is.na(URL), "not", kakorize(URL)))
+```
+
+要するに，`null`があるとリストはすべて`null`になる．
+というより`str_c()`のときか．
+```{r eval=F}
+books_sub.df <- books_sub.df %>%
+  mutate(lines = str_c(ISBN, author, author2, publisher, Update, sep = ", ")) %>%
+  mutate(lines = map2(title, # 1行目
+                      picURL,   # amazon書影へのリンク
+                      lines, # 3行目
+                      list)) %>%
+  select(-ISBN, -author, -author2, -publisher, -Update)
+```
