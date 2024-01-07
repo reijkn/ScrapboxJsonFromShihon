@@ -79,13 +79,28 @@ shihonToScrapbox <- function(){
            author2 = "その他の作者",
            publisher = "発行所",
            picURL = "画像",
+           jisuiFlg = "備考1...18",
+           fileName = "備考2...19",
            "Update") #この順番になる？ なります．
+  
+  # webdav用の定数
+  qnrp <- "http://qnrp:5000/dav"
+  
+  # 画像のリンク-ファイルのリンク の作成
+  # どうやら、半角スペースがある場合は%20が必要、、これほかの記号もでは
+  books_sub.df <- books_sub.df %>% 
+    mutate(ff = if_else(is.na(jisuiFlg), fileName, str_c(jisuiFlg, fileName, sep = "/"))) %>% 
+    mutate(ff = utils::URLencode(ff)) %>% 
+    mutate(ff = str_c(qnrp, ff, sep = "/")) %>% 
+    mutate(picAndFile = str_c(picURL, ff, sep = " ")) %>% 
+    select(-ff)
+  
   # リンクのためのカッコをつける
   books_sub.df <- books_sub.df %>%
     mutate(author = kakorize(author), 
            author2 = kakorize(author2), 
            publisher = kakorize(publisher),
-           picURL = kakorize(picURL)) %>%
+           picURL = kakorize(picAndFile)) %>%
     mutate(author = if_else(is.na(author), "0", author), # 文字列なので"0"とする．
            author2 = if_else(is.na(author2), "0", author2),
            publisher = if_else(is.na(publisher), "0", publisher))
@@ -103,6 +118,46 @@ shihonToScrapbox <- function(){
   
 }
 ```
+
+### 画像とファイルへのリンク
+
+Nasにファイルがあるなら、画像をクリックしたときにそのファイルをブラウザ上で見たい。
+scrapboxには[picUrl filePath] のような記法でそれが実現できる。
+いまpicurlはできてる。filePathにあたる部分をつくりたい。
+ところで、kindleのやつはパスがないので、3パターンになる。
+
+ 1. 自炊したpdf
+ 1. 自炊でない、DRMフリーのpdf
+ 1. kindle
+ 
+あるいはkindleならダミーのファイルというかamazonに飛ばすとか。。
+
+```{r}
+qnrp <- "http://qnrp:5000/dav"
+
+# 必要な列をしぼる
+target.df %>%
+  mutate(Update = str_c(`備考4:年`,`備考4:月`,`備考4:日`)) %>%
+  select(title = "タイトル", 
+         ISBN = "ISBN", 
+         author = "作者1", 
+         author2 = "その他の作者",
+         publisher = "発行所",
+         picURL = "画像",
+         failePath = "備考1...18",
+         faileName = "備考2...19",
+         "Update") %>% 
+  mutate(ff = if_else(is.na(failePath), faileName, str_c(failePath, faileName, sep = "/"))) %>% 
+  mutate(ff = str_c(qnrp, ff, sep = "/")) %>% 
+  mutate(picAndFile = str_c(picURL, ff, sep = " "))
+rm(qnrp)
+```
+
+```{r}
+urle
+str_c("http://qnrp:5000/dav", URLencode("独習C++-新版-.pdf", reserved = T), sep = "/")
+```
+
 
 
 # こっちにうつせばいいのでは、force directed
