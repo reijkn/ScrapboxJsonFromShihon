@@ -73,15 +73,17 @@ shihonToScrapbox <- function(){
   # 必要な列をしぼる
   books_sub.df <- books.df %>%
     mutate(Update = str_c(`備考4:年`,`備考4:月`,`備考4:日`)) %>%
+    mutate(Update = if_else(is.na(Update), "20190101", Update)) %>%
     select(title = "タイトル", 
            ISBN = "ISBN", 
            author = "作者1", 
            author2 = "その他の作者",
            publisher = "発行所",
            picURL = "画像",
-           jisuiFlg = "備考1...18",
+           filePath = "備考1...18",
            fileName = "備考2...19",
-           "Update") #この順番になる？ なります．
+           "Update") %>%  #この順番になる？ なります．
+    mutate(picURL = if_else(is.na(picURL), "h", picURL))
   
   # webdav用の定数
   qnrp <- "http://qnrp:5000/dav"
@@ -89,7 +91,9 @@ shihonToScrapbox <- function(){
   # 画像のリンク-ファイルのリンク の作成
   # どうやら、半角スペースがある場合は%20が必要、、これほかの記号もでは
   books_sub.df <- books_sub.df %>% 
-    mutate(ff = if_else(is.na(jisuiFlg), fileName, str_c(jisuiFlg, fileName, sep = "/"))) %>% 
+    mutate(ff = if_else(filePath < 2, 
+                        if_else(is.na(fileName), "0", fileName),
+                        str_c(filePath, fileName, sep = "/"))) %>% 
     mutate(ff = utils::URLencode(ff)) %>% 
     mutate(ff = str_c(qnrp, ff, sep = "/")) %>% 
     mutate(picAndFile = str_c(picURL, ff, sep = " ")) %>% 
@@ -138,16 +142,20 @@ qnrp <- "http://qnrp:5000/dav"
 # 必要な列をしぼる
 target.df %>%
   mutate(Update = str_c(`備考4:年`,`備考4:月`,`備考4:日`)) %>%
+  mutate(Update = if_else(is.na(Update), "20190101", Update)) %>% 
   select(title = "タイトル", 
          ISBN = "ISBN", 
          author = "作者1", 
          author2 = "その他の作者",
          publisher = "発行所",
          picURL = "画像",
-         failePath = "備考1...18",
-         faileName = "備考2...19",
+         filePath = "備考1...18",
+         fileName = "備考2...19",
          "Update") %>% 
-  mutate(ff = if_else(is.na(failePath), faileName, str_c(failePath, faileName, sep = "/"))) %>% 
+  # 備考1が1より大きいとき、サブフォルダの中にpdfがある。
+  mutate(ff = if_else(filePath < 2, 
+                      if_else(is.na(fileName), "0", fileName), 
+                      str_c(filePath, fileName, sep = "/"))) %>% 
   mutate(ff = str_c(qnrp, ff, sep = "/")) %>% 
   mutate(picAndFile = str_c(picURL, ff, sep = " "))
 rm(qnrp)
